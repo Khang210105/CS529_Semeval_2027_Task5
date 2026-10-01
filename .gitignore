@@ -1,0 +1,54 @@
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+# =========================
+# Virtual environment
+# =========================
+
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# Environment variables / API keys
+# =========================
+
+.env
+.env.*
+
+# Cho phép commit file mẫu
+!.env.example
+
+# =========================
+# Jupyter
+# =========================
+
+.ipynb_checkpoints/
+
+# =========================
+# VS Code
+# =========================
+
+.vscode/
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# Python cache / testing
+# =========================
+
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
