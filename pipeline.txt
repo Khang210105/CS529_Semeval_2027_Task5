@@ -1,0 +1,3 @@
+1. explore_dataset.ipynb: Quan sát nhanh dữ liệu
+2. stratified_group_split_1.py: Ưu tiên file này để chia tập dữ liệu huấn luyện. stratified_group_split_2 và freq-based_split chỉ để tham khảo
+3. 
