@@ -48,5 +48,28 @@ def main():
             f"valid={len(val_df)} câu / {val_df['Compound'].nunique()} compound"
         )
 
+        # train_compounds = train_df[["Compound", "Mod", "Head"]].drop_duplicates()
+
+        # rows = []
+
+        # for mod, head in val_df[["Mod", "Head"]].drop_duplicates().itertuples(index=False):
+        #     matching = (
+        #         train_compounds.loc[
+        #             train_compounds["Mod"].eq(mod) | train_compounds["Head"].eq(head),
+        #             "Compound"
+        #         ]
+        #         .drop_duplicates()
+        #         .sort_values()
+        #         .tolist()
+        #     )
+
+        #     if matching:
+        #         rows.append({
+        #             "valid_pair": f"({mod}, {head})",
+        #             "matching_train_compounds": ", ".join(matching),
+        #         })
+
+        # print(pd.DataFrame(rows).to_string(index=False))
+
 if __name__ == "__main__":
     main()

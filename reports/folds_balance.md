@@ -13,27 +13,27 @@ Repeats: seed 42, 43, 44
 
 ## Repeat 0 — seed 42
 
-| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train | Số câu/compound trong valid |
-|  0   |       89       |    707    |       355      |    2773   | ... | ... | .../... (...) | min–max; hoặc median |
-|  1   |       89       |    690    |       355      |    2790   | ... | ... | ... | ... |
-|  2   |       89       |    722    |       355      |    2758   | ... | ... | ... | ... |
-|  3   |       88       |    672    |       356      |    2808   | ... | ... | ... | ... |
-|  4   |       89       |    689    |       356      |    2791   | ... | ... | ... | ... |
+| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train 
+|  0   |       89       |    707    |       355      |    2773   | ... |
+|  1   |       89       |    690    |       355      |    2790   | ... |
+|  2   |       89       |    722    |       355      |    2758   | ... |
+|  3   |       88       |    672    |       356      |    2808   | ... |
+|  4   |       89       |    689    |       356      |    2791   | ... |
 
 ## Repeat 1 — seed 43
 
-| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train | Số câu/compound trong valid |
-|  0   |       89       |    671    |       355      |    2809   | ... | ... | .../... (...) | min–max; hoặc median |
-|  1   |       88       |    715    |       356      |    2765   | ... | ... | ... | ... |
-|  2   |       88       |    644    |       356      |    2836   | ... | ... | ... | ... |
-|  3   |       88       |    686    |       356      |    2794   | ... | ... | ... | ... |
-|  4   |       91       |    764    |       353      |    2716   | ... | ... | ... | ... |
+| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train 
+|  0   |       89       |    671    |       355      |    2809   | ... |
+|  1   |       88       |    715    |       356      |    2765   | ... |
+|  2   |       88       |    644    |       356      |    2836   | ... |
+|  3   |       88       |    686    |       356      |    2794   | ... |
+|  4   |       91       |    764    |       353      |    2716   | ... |
 
 ## Repeat 2 — seed 44
 
-| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train | Số câu/compound trong valid |
-|  0   |       89       |    710    |       355      |    2770   | ... | ... | .../... (...) | min–max; hoặc median |
-|  1   |       89       |    697    |       355      |    2783   | ... | ... | ... | ... |
-|  2   |       88       |    696    |       356      |    2784   | ... | ... | ... | ... |
-|  3   |       89       |    682    |       355      |    2798   | ... | ... | ... | ... |
-|  4   |       89       |    695    |       355      |    2785   | ... | ... | ... | ... |
+| Fold | Compound valid | Câu valid | Compound train | Câu train | Compound valid có modifier/head xuất hiện trong train
+|  0   |       89       |    710    |       355      |    2770   | ... |
+|  1   |       89       |    697    |       355      |    2783   | ... |
+|  2   |       88       |    696    |       356      |    2784   | ... |
+|  3   |       89       |    682    |       355      |    2798   | ... |
+|  4   |       89       |    695    |       355      |    2785   | ... |
