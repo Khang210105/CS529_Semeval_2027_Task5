@@ -57,28 +57,28 @@ def main():
         # )
 
         # 3. In ra các cặp (Mod, Head) trong tập valid mà không có compound nào trong tập train có cùng Mod hoặc Head
-        # train_compounds = train_df[["Compound", "Mod", "Head"]].drop_duplicates()
+        train_compounds = train_df[["Compound", "Mod", "Head"]].drop_duplicates()
 
-        # rows = []
+        rows = []
 
-        # for mod, head in val_df[["Mod", "Head"]].drop_duplicates().itertuples(index=False):
-        #     matching = (
-        #         train_compounds.loc[
-        #             train_compounds["Mod"].eq(mod) | train_compounds["Head"].eq(head),
-        #             "Compound"
-        #         ]
-        #         .drop_duplicates()
-        #         .sort_values()
-        #         .tolist()
-        #     )
+        for mod, head in val_df[["Mod", "Head"]].drop_duplicates().itertuples(index=False):
+            matching = (
+                train_compounds.loc[
+                    train_compounds["Mod"].eq(mod) | train_compounds["Head"].eq(head),
+                    "Compound"
+                ]
+                .drop_duplicates()
+                .sort_values()
+                .tolist()
+            )
 
-        #     if matching:
-        #         rows.append({
-        #             "valid_pair": f"({mod}, {head})",
-        #             "matching_train_compounds": ", ".join(matching),
-        #         })
+            if matching:
+                rows.append({
+                    "valid_pair": f"({mod}, {head})",
+                    "matching_train_compounds": ", ".join(matching),
+                })
 
-        # print(pd.DataFrame(rows).to_string(index=False))
+        print(pd.DataFrame(rows).to_string(index=False))
 
         # 4. In ra số lượng câu cho mỗi compound trong tập train/valid
         # sentence_counts_train = train_df.groupby("Compound").size()

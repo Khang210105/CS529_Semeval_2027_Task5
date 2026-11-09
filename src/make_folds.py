@@ -10,18 +10,17 @@ N_BINS = 3
 def build_strata(df, n_bins=N_BINS):
     type_mod_mean = df.groupby("Compound")["ModAvg"].mean()
     type_head_mean = df.groupby("Compound")["HeadAvg"].mean()
-    q_mod = min(n_bins, type_mod_mean.nunique())
-    q_head = min(n_bins, type_head_mean.nunique())
+    
     bins_mod, edges_mod = pd.qcut(
         type_mod_mean,
-        q=q_mod,
+        q=3,
         labels=False,
         duplicates="drop",
         retbins=True
     )
     bins_head, edges_head = pd.qcut(
         type_head_mean,
-        q=q_head,
+        q=3,
         labels=False,
         duplicates="drop",
         retbins=True
@@ -33,17 +32,6 @@ def build_strata(df, n_bins=N_BINS):
     # ví dụ nhóm "zinc plate" có mean HeadAvg là 1.5 sẽ được gán vào bin 0
     # ví dụ nhóm "zinc plate" có cặp (bin_mod, bin_head) = (1, 0) sẽ được gán vào strata 1_0
     # gán số bin ở trên cho từng compound trong nhóm đó
-	# ContextID	Compound	Mod	Head	ModAvg	ModStd	HeadAvg	HeadStd	      Strata
-    # 3470	13471	zinc plate	zinc	plate	3.1	2.469820	1.1	1.44914	    1_0
-    # 3471	13472	zinc plate	zinc	plate	4.4	0.699206	2.5	1.64992	    1_0
-    # 3472	13473	zinc plate	zinc	plate	3.2	2.097620	2.5	2.46080	    1_0
-    # 3473	13474	zinc plate	zinc	plate	3.6	2.065590	2.6	2.11870	    1_0
-    # 3474	13475	zinc plate	zinc	plate	4.4	0.843274	2.9	2.33095	    1_0
-    # 3475	13476	zinc plate	zinc	plate	4.3	1.337490	3.0	2.05480	    1_0
-    # 3476	13477	zinc plate	zinc	plate	3.3	1.494430	3.3	1.88856	    1_0
-    # 3477	13478	zinc plate	zinc	plate	4.1	1.728840	3.3	1.94651	    1_0
-    # 3478	13479	zinc plate	zinc	plate	4.8	0.421637	3.3	2.11082	    1_0
-    # 3479	13480	zinc plate	zinc	plate	3.8	2.097620	3.5	1.35401	    1_0
 
     strata = bins_mod.astype(str) + "_" + bins_head.astype(str)
     return df["Compound"].map(strata)
