@@ -5,9 +5,8 @@ from data import df
 
 RANDOM_SEEDS = [42, 43, 44]
 N_SPLITS = 5
-N_BINS = 3
 
-def build_strata(df, n_bins=N_BINS):
+def build_strata(df):
     type_mod_mean = df.groupby("Compound")["ModAvg"].mean()
     type_head_mean = df.groupby("Compound")["HeadAvg"].mean()
     
