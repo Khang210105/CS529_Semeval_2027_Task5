@@ -49,10 +49,10 @@ def make_group_folds(data, seeds=RANDOM_SEEDS, n_splits=N_SPLITS):
 
         seed_folds = []
         fold_col = f"fold_r{r}"
-        split_col = f"split_r{r}"
+        # split_col = f"split_r{r}"
 
         manifest[fold_col] = -1
-        manifest[split_col] = ""
+        # manifest[split_col] = ""
 
         for fold, (train_idx, val_idx) in enumerate(
             splitter.split(data, y=strata, groups=data["Compound"])
@@ -65,8 +65,8 @@ def make_group_folds(data, seeds=RANDOM_SEEDS, n_splits=N_SPLITS):
             manifest.loc[val_idx, fold_col] = fold
 
             # Gán train / validation
-            manifest.loc[train_idx, split_col] = "train"
-            manifest.loc[val_idx, split_col] = "validation"
+            # manifest.loc[train_idx, split_col] = "train"
+            # manifest.loc[val_idx, split_col] = "validation"
 
             seed_folds.append((train_idx, val_idx))
 
@@ -77,23 +77,23 @@ def make_group_folds(data, seeds=RANDOM_SEEDS, n_splits=N_SPLITS):
 def main():
     folds, manifest = make_group_folds(df)
 
-    manifest.to_csv("./data/splits/en-nn_folds_v1.csv", index=False)
+    manifest.to_csv("./data/splits/en-nn_folds.csv", index=False)
 
-    ACTIVE_SEED = 42 # key
-    ACTIVE_FOLD = 0 # value, ứng với fold 0 trong 5 fold
+    # ACTIVE_SEED = 42 # key
+    # ACTIVE_FOLD = 0 # value, ứng với fold 0 trong 5 fold
 
-    train_idx, val_idx = folds[ACTIVE_SEED][ACTIVE_FOLD]
+    # train_idx, val_idx = folds[ACTIVE_SEED][ACTIVE_FOLD]
 
-    train_df = df.iloc[train_idx].copy().reset_index(drop=True)
-    val_df = df.iloc[val_idx].copy().reset_index(drop=True)
+    # train_df = df.iloc[train_idx].copy().reset_index(drop=True)
+    # val_df = df.iloc[val_idx].copy().reset_index(drop=True)
 
-    print("Train:", len(train_df), train_df["Compound"].nunique())
-    print("Valid:", len(val_df), val_df["Compound"].nunique())
+    # print("Train:", len(train_df), train_df["Compound"].nunique())
+    # print("Valid:", len(val_df), val_df["Compound"].nunique())
 
-    print(
-        "Overlap:",
-        len(set(train_df.Compound) & set(val_df.Compound))
-    )
+    # print(
+    #     "Overlap:",
+    #     len(set(train_df.Compound) & set(val_df.Compound))
+    # )
 
 if __name__ == "__main__":
     main()
