@@ -1,0 +1,5 @@
+Context gốc: Let me see, (looking at my account book ) that is two weeks wages making $8.
+Tiền xử lí: Let me see, (looking at my <m> account </m> <h> book </h>) that is two weeks wages making $8.
+Mã hóa bằng Tokenizer: 'CLS', 'Let', 'me', 'see', ',', '(', 'looking', 'at', 'my', 'account', 'book', ')', 'that', 'is', 'two', 'weeks', 'wages', 'making', '$8', '.', 'SEP'
+
+
