@@ -1,0 +1,51 @@
+* Bước 1:
+Context gốc: 
+    Let me see, (looking at my account book ) that is two weeks wages making $8.
+
+Dùng regex để dò tìm cụm từ trong câu gốc và xác định vị trí của từ 'account' và 'book'.
+
+Chèn các token đặc biệt để đánh dấu compound trong câu:
+    Let me see, (looking at my <m> account </m> <h> book </h>) that is two weeks wages making $8.
+
+* Bước 2:
+Phân tách token: 
+    '[CLS]', 'Let', 'me', 'see', ',', '(', 'looking', 'at', 'my', '<m>', 'account', '</m>', '<h>', 'book', '</h>', ')', 
+    'that', 'is', 'two', 'weeks', 'wages', 'making', '$8', '.', '[SEP]'
+
+Chuyển đổi thành Tensor: Tokenizer ánh xạ các token này thành các con số (IDs) dựa trên từ điển của DeBERTa:
+    input_ids: [1, 133, 402, 1024, ..., 128001, 755, 128002, 128003, 3991, 128004, ..., 2]
+    attention_mask: [1, , 1, 1, ..., 1] (Mảng chứa các giá trị số 1 để báo cho mô hình biết đây là từ thật, không phải padding khoảng trống, 
+nếu có padding thì giá trị là 0).
+
+* Bước 3:
+- Các tensor input_ids được đưa vào phần lõi Deberta-v3
+- Lớp Embedding: Mỗi Token ID được chuyển thành một vector số học đại diện cho ý nghĩa của nó (Content vector).
+- Đi vào vòng lặp 12 lớp Transformer:
+    + Disentangled Attention: tính toán Attention dựa trên hai vector tách biệt: Nội dung từ (Content) và Vị trí tương đối (Relative Position). 
+Nó giúp mô hình hiểu rất rõ rằng từ "account" đang đứng ngay trước từ "book".
+    + Content, Position
+    + C to C: Ý nghĩa của MOD liên quan thế nào đến ý nghĩa của HEAD? -> Rất quan trọng để hiểu ngữ nghĩa
+    + C to P: Ý nghĩa của MOD nên tập trung vào từ nằm cách nó 2 khoảng trống về bên phải không? -> Quan trọng để hiểu cấu trúc ngữ pháp cục bộ.
+    + P to C: Cái vị trí đứng trước 2 khoảng trống đó có nên tập trung vào ý nghĩa của HEAD không? -> Quan trọng để xác định vai trò bổ nghĩa.
+    + P to P: Vị trí đứng trước 2 khoảng trống liên quan thế nào đến vị trí đứng sau 1 khoảng trống? -> Vô nghĩa về mặt ngôn ngữ -> DROP.
+    + Đầu ra là vector nội dung của từ "account" cộng thêm ý nghĩa từ "book" kế bên.
+    + Đưa vào 1 lớp mạng nơ ron FFN trước khi vào lớp Transformer tiếp theo.
+- Đầu ra của khối Transformer là một ma trận chứa các vector đại diện cho từng token. Sau đó hệ thống chỉ trích xuất duy nhất vector ẩn 
+của token đầu tiên [CLS]. 
+Vector này giờ đây đã chứa đầy đủ thông tin ngữ nghĩa của cụm "account book" trong bối cảnh của câu văn.
+
+* Bước 4:
+- Vector [CLS] kích thước 768 chiều được đưa qua một lớp Mạng nơ-ron tuyến tính (Linear Layer).
++ Lớp Linear này thực hiện phép nhân ma trận: [1, 768] x [768, 2] = [1, 2].
++ Đầu ra là 2 con số thực (Logits) tượng trưng cho dự đoán của mô hình.
++ Dự đoán (Predictions): [3.35, 4.10] (Tương ứng với ModAvg và HeadAvg).
+
+* Bước 5:
+- Vì đây là bài toán Hồi quy (Regression), mô hình sử dụng MSE (Mean Squared Error).
+Vd: Hệ thống lấy Dự đoán [3.35, 4.10] trừ đi Nhãn thực tế [3.5, 4.2] để tính bình phương sai số.
+Từ mức sai số này, thuật toán Backpropagation (Lan truyền ngược) tính toán đạo hàm (Gradient) kết hợp với Gradient Scaler 
+(để chống tràn bộ nhớ với định dạng FP16).
+
+- Optimizer (AdamW) sử dụng các đạo hàm này để cập nhật lại trọng số của lớp Linear và các lớp Attention bên trong DeBERTa,
+giúp lần dự đoán sau với những câu tương tự sẽ chính xác hơn.
+
