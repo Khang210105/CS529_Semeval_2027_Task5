@@ -25,9 +25,9 @@ MODEL_NAME = "microsoft/deberta-v3-base"
 SEEDS = [42, 43, 44]
 N_FOLDS = 5
 MAX_LEN = 128
-BATCH_SIZE = 64
-EPOCHS = 50
+BATCH_SIZE = 16
 LR = 2e-5
+EPOCHS = 10
 WARMUP_RATIO = 0.10
 WEIGHT_DECAY = 0.01
 MARKERS = ["<m>", "</m>", "<h>", "</h>"]
@@ -166,7 +166,9 @@ def read_and_align(repeat: int) -> tuple[pd.DataFrame, int]:
     aligned[LABEL_COLS] = aligned[LABEL_COLS].apply(pd.to_numeric, errors="raise")
     return aligned, fold_col
 
-def train_fold(train_df, valid_df, repeat, fold, device):
+def train_fold(
+    train_df, valid_df, repeat, fold, device, batch_size, lr, checkpoint_dir=None
+):
     seed = SEEDS[repeat]
     set_seed(seed)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
@@ -175,9 +177,9 @@ def train_fold(train_df, valid_df, repeat, fold, device):
     valid_ds = PairDataset(valid_df, tokenizer)
     generator = torch.Generator().manual_seed(seed)
     train_loader = DataLoader(
-        train_ds, batch_size=BATCH_SIZE, shuffle=True, generator=generator,
+        train_ds, batch_size=batch_size, shuffle=True, generator=generator,
     )
-    valid_loader = DataLoader(valid_ds, batch_size=BATCH_SIZE, shuffle=False)
+    valid_loader = DataLoader(valid_ds, batch_size=batch_size, shuffle=False)
 
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME, num_labels=2, problem_type="regression",
@@ -187,7 +189,7 @@ def train_fold(train_df, valid_df, repeat, fold, device):
     # forward operations, while GradScaler unscales the FP32 parameter gradients.
     model.to(device=device, dtype=torch.float32)
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY,
+        model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY,
     )
     steps = len(train_loader) * EPOCHS
     scheduler = get_linear_schedule_with_warmup(
@@ -199,7 +201,9 @@ def train_fold(train_df, valid_df, repeat, fold, device):
     for epoch in range(1, EPOCHS + 1):
         model.train()
         loss_sum = 0.0
+        example_count = 0
         for batch in train_loader:
+            current_batch_size = batch["labels"].shape[0]
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(
@@ -208,15 +212,24 @@ def train_fold(train_df, valid_df, repeat, fold, device):
             ):
                 output = model(**batch)
                 loss = output.loss
+            scale_before_step = scaler.get_scale()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
-            loss_sum += loss.detach().float().item()
+            if scaler.get_scale() >= scale_before_step:
+                scheduler.step()
+            loss_sum += loss.detach().float().item() * current_batch_size
+            example_count += current_batch_size
         print(
             f"repeat={repeat} fold={fold} epoch={epoch}/{EPOCHS} "
-            f"train_mse={loss_sum / len(train_loader):.6f}", flush=True,
+            f"train_mse={loss_sum / example_count:.6f}", flush=True,
         )
+
+    if checkpoint_dir is not None:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        model.save_pretrained(checkpoint_dir, safe_serialization=True)
+        tokenizer.save_pretrained(checkpoint_dir)
+        print(f"Checkpoint saved: {checkpoint_dir}", flush=True)
 
     model.eval()
     predictions = []
@@ -244,16 +257,37 @@ def train_fold(train_df, valid_df, repeat, fold, device):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeat", type=int, required=True, choices=range(3))
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument(
+        "--run-tag", type=str, default=None,
+        help="optional label for keeping experiment outputs separate",
+    )
+    parser.add_argument(
+        "--save-checkpoints", action="store_true",
+        help="save model and tokenizer for every completed fold",
+    )
     parser.add_argument(
         "--resume", action="store_true",
         help="resume using completed fold predictions in the partial OOF file",
     )
     args = parser.parse_args()
+    if args.batch_size < 1 or args.lr <= 0:
+        parser.error("--batch-size and --lr must be positive")
+    lr_tag = f"{args.lr:.3g}".replace(".", "p").replace("+", "")
+    run_tag = args.run_tag or f"e{EPOCHS}_bs{args.batch_size}_lr{lr_tag}"
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", run_tag):
+        parser.error("--run-tag may contain only letters, numbers, dots, underscores, and hyphens")
     if not torch.cuda.is_available():
         raise RuntimeError("Cần GPU CUDA; trên Kaggle hãy bật Accelerator = GPU.")
     device = torch.device("cuda")
     gpu_name = torch.cuda.get_device_name(0)
-    print(f"GPU: {gpu_name}; repeat={args.repeat}; seed={SEEDS[args.repeat]}", flush=True)
+    print(
+        f"GPU: {gpu_name}; repeat={args.repeat}; seed={SEEDS[args.repeat]}; "
+        f"epochs={EPOCHS}; batch_size={args.batch_size}; lr={args.lr}; "
+        f"warmup_ratio={WARMUP_RATIO}; weight_decay={WEIGHT_DECAY}; run_tag={run_tag}",
+        flush=True,
+    )
 
     data, fold_col = read_and_align(args.repeat)
     # Fail before downloading/training if the Việc 0 span rule misses any row.
@@ -268,11 +302,12 @@ def main():
         )
     print(f"Span check: {len(data)}/{len(data)} câu có Mod + Head span.", flush=True)
 
-    output_dir = ROOT / "outputs/oof"
+    output_dir = ROOT / "outputs/oof" / run_tag
     output_dir.mkdir(parents=True, exist_ok=True)
-    oof_path = output_dir / f"deberta_v3_base_r{args.repeat}.csv"
-    partial_path = output_dir / f"deberta_v3_base_r{args.repeat}.partial.csv"
-    runtime_path = output_dir / f"deberta_v3_base_r{args.repeat}_runtime.csv"
+    oof_path = output_dir / f"r{args.repeat}.csv"
+    partial_path = output_dir / f"r{args.repeat}.partial.csv"
+    runtime_path = output_dir / f"r{args.repeat}_runtime.csv"
+    checkpoint_root = ROOT / "outputs/checkpoints" / run_tag / f"r{args.repeat}"
     all_predictions, runtimes = [], []
     if args.resume and partial_path.exists():
         previous = pd.read_csv(partial_path, dtype={ID_COL: str})
@@ -318,7 +353,15 @@ def main():
             f"GPU={gpu_name}", flush=True,
         )
         start = time.perf_counter()
-        pred = train_fold(train_df, valid_df, args.repeat, fold, device)
+        checkpoint_dir = (
+            checkpoint_root / f"fold{fold}" if args.save_checkpoints else None
+        )
+        pred = train_fold(
+            train_df, valid_df, args.repeat, fold, device,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            checkpoint_dir=checkpoint_dir,
+        )
         elapsed = time.perf_counter() - start
         runtimes.append({"repeat": args.repeat, "seed": SEEDS[args.repeat],
                          "fold": fold, "seconds": elapsed, "gpu": gpu_name})
@@ -349,6 +392,8 @@ def main():
         partial_path.unlink()
     print(f"OOF saved: {oof_path}", flush=True)
     print(f"Fold runtimes saved: {runtime_path}", flush=True)
+    if args.save_checkpoints:
+        print(f"Fold checkpoints saved under: {checkpoint_root}", flush=True)
 
 
 if __name__ == "__main__":
