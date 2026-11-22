@@ -16,6 +16,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     get_linear_schedule_with_warmup,
+    get_cosine_schedule_with_warmup
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -167,7 +168,7 @@ def read_and_align(repeat: int) -> tuple[pd.DataFrame, int]:
     return aligned, fold_col
 
 def train_fold(
-    train_df, valid_df, repeat, fold, device, batch_size, lr, checkpoint_dir=None
+    train_df, valid_df, repeat, fold, device, batch_size, lr, epochs, checkpoint_dir=None
 ):
     seed = SEEDS[repeat]
     set_seed(seed)
@@ -191,14 +192,14 @@ def train_fold(
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY,
     )
-    steps = len(train_loader) * EPOCHS
+    steps = len(train_loader) * epochs
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=int(steps * WARMUP_RATIO),
         num_training_steps=steps,
     )
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, epochs+ 1):
         model.train()
         loss_sum = 0.0
         example_count = 0
@@ -221,7 +222,7 @@ def train_fold(
             loss_sum += loss.detach().float().item() * current_batch_size
             example_count += current_batch_size
         print(
-            f"repeat={repeat} fold={fold} epoch={epoch}/{EPOCHS} "
+            f"repeat={repeat} fold={fold} epoch={epoch}/{epochs} "
             f"train_mse={loss_sum / example_count:.6f}", flush=True,
         )
 
@@ -257,6 +258,7 @@ def train_fold(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeat", type=int, required=True, choices=range(3))
+    parser.add_argument("--epoch", type=int, default=EPOCHS)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument(
@@ -272,10 +274,10 @@ def main():
         help="resume using completed fold predictions in the partial OOF file",
     )
     args = parser.parse_args()
-    if args.batch_size < 1 or args.lr <= 0:
-        parser.error("--batch-size and --lr must be positive")
+    if args.batch_size < 1 or args.lr <= 0 or args.epoch < 1:
+        parser.error("--batch-size, --lr, and --epoch must be positive")
     lr_tag = f"{args.lr:.3g}".replace(".", "p").replace("+", "")
-    run_tag = args.run_tag or f"e{EPOCHS}_bs{args.batch_size}_lr{lr_tag}"
+    run_tag = args.run_tag or f"e{args.epoch}_bs{args.batch_size}_lr{lr_tag}"
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", run_tag):
         parser.error("--run-tag may contain only letters, numbers, dots, underscores, and hyphens")
     if not torch.cuda.is_available():
@@ -284,7 +286,7 @@ def main():
     gpu_name = torch.cuda.get_device_name(0)
     print(
         f"GPU: {gpu_name}; repeat={args.repeat}; seed={SEEDS[args.repeat]}; "
-        f"epochs={EPOCHS}; batch_size={args.batch_size}; lr={args.lr}; "
+        f"epochs={args.epoch}; batch_size={args.batch_size}; lr={args.lr}; "
         f"warmup_ratio={WARMUP_RATIO}; weight_decay={WEIGHT_DECAY}; run_tag={run_tag}",
         flush=True,
     )
@@ -360,6 +362,7 @@ def main():
             train_df, valid_df, args.repeat, fold, device,
             batch_size=args.batch_size,
             lr=args.lr,
+            epochs=args.epoch,
             checkpoint_dir=checkpoint_dir,
         )
         elapsed = time.perf_counter() - start
@@ -373,6 +376,7 @@ def main():
             f"Done fold={fold}: {elapsed/60:.2f} min; GPU={gpu_name}; "
             f"prediction std mod={std_mod:.4f}, head={std_head:.4f}", flush=True,
         )
+        print("\n", flush=True)
         # if elapsed > 20 * 60:
         #     raise RuntimeError(
         #         f"Fold {fold} mất hơn 20 phút. Đã ghi runtime; dừng trước fold kế tiếp "

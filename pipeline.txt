@@ -11,7 +11,7 @@ files = [
     "src/train-deberta-v3.py",
     "data/raw/en-nn-train.tsv",
     "data/splits/en-nn_folds.csv",
-    "evaluations/evaluator.py",
+    "evaluations/evaluator_updated.py",
 ]
 with zipfile.ZipFile("CS529-kaggle.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
     for name in files:
