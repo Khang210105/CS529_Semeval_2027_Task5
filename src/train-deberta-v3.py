@@ -8,6 +8,9 @@ import re
 import time
 from pathlib import Path
 
+import torchsort
+import torch.nn.functional as F
+
 import numpy as np
 import pandas as pd
 import torch
@@ -167,6 +170,41 @@ def read_and_align(repeat: int) -> tuple[pd.DataFrame, int]:
     aligned[LABEL_COLS] = aligned[LABEL_COLS].apply(pd.to_numeric, errors="raise")
     return aligned, fold_col
 
+def soft_spearman_loss(logits, labels, regularization_strength=1.0):
+    """
+    logits: [batch_size, 2] (Dự đoán ModAvg và HeadAvg)
+    labels: [batch_size, 2] (Nhãn thực tế)
+    """
+    # torchsort yêu cầu chiều cuối cùng (dim=-1) phải là chiều cần xếp hạng.
+    # Do đó, ta chuyển vị ma trận từ [batch_size, 2] thành [2, batch_size] 
+    # để xếp hạng 16 câu trong batch với nhau.
+    logits_t = logits.t() 
+    labels_t = labels.t()
+    
+    # 1. Tính Soft Rank cho dự đoán (có đạo hàm để backward)
+    pred_ranks = torchsort.soft_rank(logits_t, regularization_strength=regularization_strength)
+    
+    # 2. Tính Hard Rank cho nhãn (không cần đạo hàm)
+    with torch.no_grad():
+        # Xếp hạng truyền thống của PyTorch: dùng argsort 2 lần
+        target_ranks = labels_t.argsort(dim=1).argsort(dim=1).float() + 1.0
+        
+    # 3. Tính Pearson Correlation trên 2 mảng thứ hạng này
+    # Trừ đi giá trị trung bình
+    pred_ranks = pred_ranks - pred_ranks.mean(dim=1, keepdim=True)
+    target_ranks = target_ranks - target_ranks.mean(dim=1, keepdim=True)
+    
+    # Tính Hiệp phương sai (Covariance) và Độ lệch chuẩn (Std)
+    cov = (pred_ranks * target_ranks).sum(dim=1)
+    var_pred = (pred_ranks ** 2).sum(dim=1).sqrt()
+    var_target = (target_ranks ** 2).sum(dim=1).sqrt()
+    
+    # Tính hệ số tương quan (Thêm 1e-8 để tránh chia cho 0)
+    spearman = cov / (var_pred * var_target + 1e-8) # Kết quả là tensor [2] cho Mod và Head
+    
+    # Vì tương quan tốt nhất là +1, nên Loss = 1 - Spearman (càng nhỏ càng tốt)
+    return 1 - spearman.mean()
+
 def train_fold(
     train_df, valid_df, repeat, fold, device, batch_size, lr, epochs, checkpoint_dir=None
 ):
@@ -205,6 +243,8 @@ def train_fold(
         example_count = 0
         for batch in train_loader:
             current_batch_size = batch["labels"].shape[0]
+            # 1. Lấy labels ra trước khi bị đưa vào model
+            labels = batch.pop("labels").to(device)
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(
@@ -212,7 +252,17 @@ def train_fold(
                 enabled=(device.type == "cuda"),
             ):
                 output = model(**batch)
-                loss = output.loss
+                logits = output.logits # 2
+            # Thành phần MSE
+            loss_mse = F.mse_loss(logits, labels)
+
+            # Thành phần Soft-spearman
+            loss_spearman = soft_spearman_loss(logits, labels)
+
+            # Cộng 2 thành phần tính loss lại
+            lambda_w = 0.5
+            loss = loss_mse + lambda_w * loss_spearman
+
             scale_before_step = scaler.get_scale()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
