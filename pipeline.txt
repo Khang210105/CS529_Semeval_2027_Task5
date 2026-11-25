@@ -12,6 +12,7 @@ from pathlib import Path
 files = [
     "src/train-deberta-v3.py",
     "data/raw/en-nn-train.tsv",
+    "data/raw/en-nn-trial.tsv",
     "data/splits/en-nn_folds.csv",
     "evaluations/evaluator_updated.py",
 ]

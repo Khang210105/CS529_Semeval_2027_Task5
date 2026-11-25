@@ -49,7 +49,7 @@ GROUP = "Compound"
 SETTINGS = {"mod": ("pred_mod", "ModAvg"), "head": ("pred_head", "HeadAvg")}
 PRED_COLS = ["pred_mod", "pred_head"]
 GOLD_COLS = ["ModAvg", "HeadAvg"]
-METRICS = ("m1", "m2", "rmse")
+METRICS = ("rho", "rmse", "stdev")
 SUBMISSION_NAME = "en-nn-pred.tsv"
 DEFAULT_CSV_DIR = Path("outputs/eval")  # where every scoring run drops its CSV unless --csv says otherwise
 SCALE = (0.0, 5.0)
@@ -109,43 +109,47 @@ def score_setting(df: pd.DataFrame, pred_col: str, gold_col: str, *, group_col: 
     # Diagnostics, not official.
     sizes = grouped.size()
     pred_range = grouped[pred_col].max() - grouped[pred_col].min()
-    means = grouped[[pred_col, gold_col]].mean()
-    within = [spearman(g[pred_col], g[gold_col]) for _, g in grouped if len(g) >= 3]
-    within = [r for r in within if not math.isnan(r)]
+    # means = grouped[[pred_col, gold_col]].mean()
+    # within = [spearman(g[pred_col], g[gold_col]) for _, g in grouped if len(g) >= 3]
+    # within = [r for r in within if not math.isnan(r)]
     result = {
-        "m1": m1,
-        "m2": m2,
+        "rho": m1,
         "rmse": rmse,
-        "n_sentences": int(len(df)),
-        "n_compounds": int(len(sizes)),
-        "n_compounds_m2": int(len(spread)),
-        "n_constant_compounds": int(((pred_range <= CONST_TOL) & (sizes >= 2)).sum()),
-        "rho_between": spearman(means[pred_col], means[gold_col]),
-        "rho_within_mean": float(np.mean(within)) if within else math.nan,
-        "n_compounds_within": len(within),
+        "stdev": m2
+        # "n_sentences": int(len(df)),
+        # "n_compounds": int(len(sizes)),
+        # "n_compounds_stdev": int(len(spread)),
+        # "n_constant_compounds": int(((pred_range <= CONST_TOL) & (sizes >= 2)).sum()),
+        # "rho_between": spearman(means[pred_col], means[gold_col]),
+        # "rho_within_mean": float(np.mean(within)) if within else math.nan,
+        # "n_compounds_within": len(within),
     }
-    _check_setting(result, name or gold_col)
+    _check_setting(result, 
+        label=name or gold_col,
+        n_compounds = int(len(sizes)),
+        n_compounds_stdev = int(len(spread)),
+        n_constant = int(((pred_range <= CONST_TOL) & (sizes >= 2)).sum()),
+    )
     return result
 
 
-def _check_setting(r: dict, label: str) -> None:
-    if math.isnan(r["m1"]):
-        _warn(f"[{label}] m1 is NaN: the predictions (or the gold) are constant.")
-    n, k = r["n_compounds_m2"], r["n_constant_compounds"]
-    if math.isnan(r["m2"]):
-        if n < 2:
+def _check_setting(r: dict, label: str, n_compounds: int, n_compounds_stdev: int, n_constant: int) -> None:
+    if math.isnan(r["rho"]):
+        _warn(f"[{label}] rho is NaN: the predictions (or the gold) are constant.")
+    if math.isnan(r["stdev"]):
+        if n_compounds_stdev < 2:
             why = "fewer than 2 compounds have two or more sentences"
-        elif k >= n:
+        elif n_constant >= n_compounds_stdev:
             why = "every compound gets one value for all its sentences (type-level prediction)"
         else:
             why = "the per-compound standard deviations are all equal on one side"
-        _warn(f"[{label}] m2 is NaN: {why}.")
+        _warn(f"[{label}] stdev is NaN: {why}.")
         return
-    if n < 3:
-        _warn(f"[{label}] m2 uses only {n} compounds; a rank correlation of so few points means nothing.")
-    if k:
-        _warn(f"[{label}] {k} of {r['n_compounds']} compounds get one value for all their sentences; "
-              "this silently lowers m2.")
+    if n_compounds_stdev < 3:
+        _warn(f"[{label}] stdev uses only {n_compounds_stdev} compounds; a rank correlation of so few points means nothing.")
+    if n_constant:
+        _warn(f"[{label}] {n_constant} of {n_compounds} compounds get one value for all their sentences; "
+              "this silently lowers stdev.")
 
 
 def score(gold: pd.DataFrame, pred: pd.DataFrame, *, ddof: int = 1) -> dict:
@@ -158,13 +162,13 @@ def score(gold: pd.DataFrame, pred: pd.DataFrame, *, ddof: int = 1) -> dict:
     """
     df = align(gold, pred)
     result = {name: score_setting(df, pc, gc, ddof=ddof, name=name) for name, (pc, gc) in SETTINGS.items()}
-    result["avg"] = {}
-    for m in METRICS:
-        values = [result[s][m] for s in SETTINGS]
-        result["avg"][m] = float(np.mean(values))
-        bad = [s for s, v in zip(SETTINGS, values) if math.isnan(v)]
-        if bad:
-            _warn(f"[avg] {m} is NaN because {' and '.join(bad)} {'is' if len(bad) == 1 else 'are'} NaN.")
+    # result["avg"] = {}
+    # for m in METRICS:
+    #     values = [result[s][m] for s in SETTINGS]
+    #     result["avg"][m] = float(np.mean(values))
+    #     bad = [s for s, v in zip(SETTINGS, values) if math.isnan(v)]
+    #     if bad:
+    #         _warn(f"[avg] {m} is NaN because {' and '.join(bad)} {'is' if len(bad) == 1 else 'are'} NaN.")
     return result
 
 
@@ -212,12 +216,16 @@ def score_cv(gold: pd.DataFrame, oof: pd.DataFrame, folds: pd.DataFrame | None =
     for k, part in o.groupby("_fold", sort=True):
         in_fold = gold_ids.isin(set(part[ID])).to_numpy()
         r = score(gold[in_fold], part, ddof=ddof)
-        row = {"fold": int(k), "n_compounds": r["mod"]["n_compounds"], "n_sentences": r["mod"]["n_sentences"]}
-        for s in (*SETTINGS, "avg"):
+        row = {"fold": int(k)}
+        # row = {"fold": int(k), "n_compounds": r["mod"]["n_compounds"], "n_sentences": r["mod"]["n_sentences"]}
+        # for s in (*SETTINGS, "avg"):
+        #     for m in METRICS:
+        #         row[f"{s}_{m}"] = r[s][m]
+        # for s in SETTINGS:
+        #     row[f"{s}_n_constant"] = r[s]["n_constant_compounds"]
+        for s in SETTINGS:
             for m in METRICS:
                 row[f"{s}_{m}"] = r[s][m]
-        for s in SETTINGS:
-            row[f"{s}_n_constant"] = r[s]["n_constant_compounds"]
         rows.append(row)
     per_fold = pd.DataFrame(rows).set_index("fold")
     summary = pd.DataFrame({"mean": per_fold.mean(skipna=False), "std": per_fold.std(skipna=False)}).T
@@ -404,36 +412,46 @@ def _f(v) -> str:
 
 
 def format_result(res: dict) -> str:
-    lines = [f"{'setting':<8}{'m1':>8}{'m2':>8}{'rmse':>8}{'compounds':>11}{'constant':>10}"
-             f"{'between':>9}{'within':>8}"]
+    # lines = [f"{'setting':<8}{'m1':>8}{'m2':>8}{'rmse':>8}{'compounds':>11}{'constant':>10}"
+    #          f"{'between':>9}{'within':>8}"]
+    # for s in SETTINGS:
+    #     r = res[s]
+    #     lines.append(f"{s:<8}{_f(r['m1']):>8}{_f(r['m2']):>8}{_f(r['rmse']):>8}{r['n_compounds']:>11}"
+    #                  f"{r['n_constant_compounds']:>10}{_f(r['rho_between']):>9}{_f(r['rho_within_mean']):>8}")
+    # a = res["avg"]
+    # lines.append(f"{'avg':<8}{_f(a['m1']):>8}{_f(a['m2']):>8}{_f(a['rmse']):>8}")
+    # lines.append("m1: Spearman over sentences (main) | m2: Spearman of per-compound std | rmse: error in points")
+    # lines.append("constant: compounds with one value for all sentences | between: Spearman of compound "
+    #              "means | within: mean Spearman inside compounds")
+    lines = [f"{'setting':<8}{'rho':>10}{'rmse':>10}{'stdev':>10}"]
     for s in SETTINGS:
         r = res[s]
-        lines.append(f"{s:<8}{_f(r['m1']):>8}{_f(r['m2']):>8}{_f(r['rmse']):>8}{r['n_compounds']:>11}"
-                     f"{r['n_constant_compounds']:>10}{_f(r['rho_between']):>9}{_f(r['rho_within_mean']):>8}")
-    a = res["avg"]
-    lines.append(f"{'avg':<8}{_f(a['m1']):>8}{_f(a['m2']):>8}{_f(a['rmse']):>8}")
-    lines.append("m1: Spearman over sentences (main) | m2: Spearman of per-compound std | rmse: error in points")
-    lines.append("constant: compounds with one value for all sentences | between: Spearman of compound "
-                 "means | within: mean Spearman inside compounds")
+        lines.append(f"{s:<8}{_f(r['rho']):>10}{_f(r['rmse']):>10}{_f(r['stdev']):>10}")
     return "\n".join(lines)
 
 
 def format_cv(per_fold: pd.DataFrame, summary: pd.DataFrame) -> str:
-    cols = [f"{s}_{m}" for s in (*SETTINGS, "avg") for m in METRICS]
+    # cols = [f"{s}_{m}" for s in (*SETTINGS, "avg") for m in METRICS]
+    # fmt = {c: _f for c in cols}
+    # table = per_fold[["n_compounds", *cols]].to_string(formatters=fmt)
+    # summ = summary[cols].to_string(formatters=fmt)
+    # a = summary["avg_m1"]
+    # return (f"{table}\n\n{summ}\n\nCompare models on avg_m1 = {_f(a['mean'])} ± {_f(a['std'])} "
+    #         "(mean ± std over folds).")
+    cols = [f"{s}_{m}" for s in SETTINGS for m in METRICS]
     fmt = {c: _f for c in cols}
-    table = per_fold[["n_compounds", *cols]].to_string(formatters=fmt)
+    table = per_fold[cols].to_string(formatters=fmt)
     summ = summary[cols].to_string(formatters=fmt)
-    a = summary["avg_m1"]
-    return (f"{table}\n\n{summ}\n\nCompare models on avg_m1 = {_f(a['mean'])} ± {_f(a['std'])} "
-            "(mean ± std over folds).")
+    return f"{table}\n\n{summ}"
 
 
 def result_table(result: dict) -> pd.DataFrame:
     """One row per setting (mod, head, avg) of a ``score`` result, metrics and diagnostics as columns."""
-    table = pd.DataFrame([{"setting": s, **result[s]} for s in (*SETTINGS, "avg")])
-    counts = [c for c in table.columns if c.startswith("n_")]
-    table[counts] = table[counts].astype("Int64")  # whole numbers stay whole; the avg row is left empty
-    return table
+    # table = pd.DataFrame([{"setting": s, **result[s]} for s in (*SETTINGS, "avg")])
+    # counts = [c for c in table.columns if c.startswith("n_")]
+    # table[counts] = table[counts].astype("Int64")  # whole numbers stay whole; the avg row is left empty
+    # return table
+    return pd.DataFrame([{"setting": s, **result[s]} for s in SETTINGS])
 
 
 def cv_table(per_fold: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
