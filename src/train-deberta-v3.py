@@ -8,6 +8,8 @@ import re
 import time
 from pathlib import Path
 
+import torch.nn.functional as F
+
 import numpy as np
 import pandas as pd
 import torch
@@ -167,6 +169,43 @@ def read_and_align(repeat: int) -> tuple[pd.DataFrame, int]:
     aligned[LABEL_COLS] = aligned[LABEL_COLS].apply(pd.to_numeric, errors="raise")
     return aligned, fold_col
 
+def soft_spearman_loss(logits, labels, temp=0.1):
+    """
+    Tính Soft-Spearman hoàn toàn bằng PyTorch gốc, hỗ trợ trực tiếp FP16.
+    logits: [batch_size, 2]
+    labels: [batch_size, 2]
+    temp: Nhiệt độ (temperature), càng nhỏ thì xếp hạng mềm càng sát với xếp hạng thật.
+    """
+    # Ép labels về cùng kiểu dữ liệu với logits (float16) để tránh lỗi lệch dtype
+    labels = labels.to(logits.dtype)
+    
+    # 1. Tính Soft-Rank cho logits bằng ma trận so sánh cặp (Pairwise Sigmoid)
+    # Mở rộng chiều để trừ chéo từng cặp câu trong batch: [batch_size, batch_size, 2]
+    diff = logits.unsqueeze(1) - logits.unsqueeze(0)
+    # Cộng tổng xác suất lớn hơn các phần tử khác để ra thứ hạng mềm [batch_size, 2]
+    pred_ranks = torch.sigmoid(diff / temp).sum(dim=1)
+    
+    # 2. Tính Hard-Rank cho labels (không cần đạo hàm)
+    with torch.no_grad():
+        # Xử lý cho trường hợp các labels có giá trị trùng nhau
+        # target_ranks = labels.argsort(dim=0).argsort(dim=0).to(logits.dtype) + 1.0
+        diff_target = labels.unsqueeze(1) - labels.unsqueeze(0)
+        target_ranks = (diff_target > 0).to(logits.dtype).sum(dim=1) + \
+                       0.5 * (diff_target == 0).to(logits.dtype).sum(dim=1) + 0.5
+        
+    # 3. Tính Pearson Correlation trên 2 mảng thứ hạng này
+    pred_centered = pred_ranks - pred_ranks.mean(dim=0, keepdim=True)
+    target_centered = target_ranks - target_ranks.mean(dim=0, keepdim=True)
+    
+    cov = (pred_centered * target_centered).sum(dim=0)
+    var_pred = (pred_centered ** 2).sum(dim=0).sqrt()
+    var_target = (target_centered ** 2).sum(dim=0).sqrt()
+    
+    # Dùng 1e-4 để an toàn tuyệt đối trong môi trường FP16
+    spearman = cov / (var_pred * var_target + 1e-4)
+    
+    return 1 - spearman.mean()
+
 def train_fold(
     train_df, valid_df, repeat, fold, device, batch_size, lr, epochs, checkpoint_dir=None
 ):
@@ -205,6 +244,8 @@ def train_fold(
         example_count = 0
         for batch in train_loader:
             current_batch_size = batch["labels"].shape[0]
+            # 1. Lấy labels ra trước khi bị đưa vào model
+            labels = batch.pop("labels").to(device)
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(
@@ -212,7 +253,17 @@ def train_fold(
                 enabled=(device.type == "cuda"),
             ):
                 output = model(**batch)
-                loss = output.loss
+                logits = output.logits # 2
+            # Thành phần MSE
+            loss_mse = F.mse_loss(logits.float(), labels.float())
+
+            # Thành phần Soft-spearman
+            loss_spearman = soft_spearman_loss(logits.float(), labels.float())
+
+            # Cộng 2 thành phần tính loss lại
+            lambda_w = 0.5
+            loss = loss_mse + lambda_w * loss_spearman
+
             scale_before_step = scaler.get_scale()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -223,7 +274,7 @@ def train_fold(
             example_count += current_batch_size
         print(
             f"repeat={repeat} fold={fold} epoch={epoch}/{epochs} "
-            f"train_mse={loss_sum / example_count:.6f}", flush=True,
+            f"train_loss={loss_sum / example_count:.6f}", flush=True,
         )
 
     if checkpoint_dir is not None:

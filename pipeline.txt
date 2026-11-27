@@ -1,6 +1,8 @@
-1. explore_dataset.ipynb: Quan sát nhanh dữ liệu
-2. stratified_group_split_1.py: Ưu tiên file này để chia tập dữ liệu huấn luyện. stratified_group_split_2 và freq-based_split chỉ để tham khảo
-3. 
+1. Trên kaggle tạo dataset rồi add file zip này vào, cách tạo zip dưới đây, sau đó tự đặt tên cho dataset.
+2. Đăng ký / Đăng nhập Hugging Face, sau đó tạo 1 Access Token có type là Write, lưu lại vào notepad.
+3. Chạy file notebook, vào phần add-ons -> secret add token ở trên vào, đặt tên là HF_TOKEN (hoặc tùy chọn).
+4. Ở góc phải phần Save Version, chọn Save and Commit, advance options chọn chạy bằng T4,
+mục đích là để chạy tự động.
 
 Cách tạo zip rồi upload vào dataset kaggle:
 @'
@@ -10,6 +12,7 @@ from pathlib import Path
 files = [
     "src/train-deberta-v3.py",
     "data/raw/en-nn-train.tsv",
+    "data/raw/en-nn-trial.tsv",
     "data/splits/en-nn_folds.csv",
     "evaluations/evaluator_updated.py",
 ]
